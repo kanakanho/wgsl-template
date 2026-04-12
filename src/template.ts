@@ -1,6 +1,5 @@
 import { mat4Multiply, mat4Perspective, mat4RotationX, mat4RotationY, mat4RotationZ, mat4Scale, mat4Translation } from './math/mat'
-import { frag } from './shader/frag'
-import { vert } from './shader/vert'
+import shaderSource from './shader/shader.wgsl?raw'
 
 function buildRenderBundle(
   gpuDevice: GPUDevice,
@@ -35,12 +34,30 @@ export default function template(
 ) {
   const multiSampleCount = 4
 
+  const shaderModule = gpuDevice.createShaderModule({ code: shaderSource })
+
   // レンダリングパイプラインの作成
   const pipeline = gpuDevice.createRenderPipeline({
     layout: 'auto',
     vertex: {
-      module: gpuDevice.createShaderModule({ code: vert }),
-      entryPoint: 'main',
+      module: shaderModule,
+      entryPoint: 'vs_main',
+      /**
+       * 頂点バッファのレイアウトを定義する
+       * arrayStride: 各頂点のデータサイズ（今回は位置3 + 色3 + 法線3 = 9要素 * 4バイト = 36バイト）
+       * attributes: 各頂点属性の場所、オフセット、フォーマットを定義する
+       * shaderLocation: シェーダー内での属性の場所（@location(n)と対応させる）
+       * offset: 頂点データ内での属性の開始位置（位置は0、色は12、法線は24バイト目から）
+       * format: データのフォーマット（float32x3は3要素の32ビット浮動小数点数）
+       *
+       * ```wgsl
+       * struct VertexInput {
+       *   @location(0) position: vec3f,  // ←これに対応
+       *   @location(1) color: vec3f,     // ←これに対応
+       *   @location(2) normal: vec3f,    // ←これに対応
+       * };
+       * ```
+       */
       buffers: [
         {
           arrayStride: 36,
@@ -53,8 +70,23 @@ export default function template(
       ],
     },
     fragment: {
-      module: gpuDevice.createShaderModule({ code: frag }),
-      entryPoint: 'main',
+      module: shaderModule,
+      entryPoint: 'fs_main',
+      /**
+       * シェーダー内のoverride変数に定数を渡す
+       * ```wgsl
+       * override isUnlit: bool = false;         // ライティング計算を飛ばすか
+       * override metallic: f32 = 1.0;           // 金属感の強さ
+       * override shininess: f32 = 96.0;         // 鏡面反射の鋭さ (スペキュラ指数)
+       * override ambientIntensity: f32 = 0.12;  // 環境光の強さ
+       * ```
+       */
+      constants: {
+        isUnlit: 0,
+        metallic: 0.0,
+        shininess: 96.0,
+        ambientIntensity: 0.12,
+      },
       targets: [{ format: presentationFormat }],
     },
     primitive: {
